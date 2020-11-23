@@ -1,0 +1,150 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for CT FOCS
+
+# STEPS
+Download: Y
+Pooling: Y
+Data Organization: Y
+Mergining downloaded info: N
+Liftovering: N
+Filtering: N
+
+
+##Download: Y
+SOURCE: http://acgt.cs.tau.ac.il/ct-focs/download.html
+
+# paper summary:
+We accessed CTFOCS enhancers (on the 21.11.2020.) 
+
+# Data Organization:
+
+__1. Creating EG pairs from download 2__
+
+```{r, eval=FALSE}
+
+
+library(GenomicInteractions)
+library(stringr)
+library(InteractionSet)
+library(parallel)
+
+
+setwd("/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/CT-FOCS/")
+  names <- c("encode","roadmap","fantom")
+
+  FOCS_encode <- read.table("encode.cell_type_specific_ep_links.txt",he=T, fill=T,stringsAsFactors = F)
+
+  FOCS_roadmap <- read.table("roadmap.cell_type_specific_ep_links.txt",he=T, fill=T,stringsAsFactors = F,sep="\t")
+  
+  
+  
+  
+ Input_Interactions <- c(nrow(FOCS_encode),
+                           nrow(FOCS_roadmap))
+  
+ names(Input_Interactions) <- c("ENCODE",
+                                "Roadmap") 
+  
+ print("Input N of interactions")
+ print(Input_Interactions)
+ 
+ 
+ FOCS <- rbind(FOCS_encode,
+        FOCS_roadmap)
+ 
+ 
+```
+# Separate processing for FANTOM5 data
+
+```{r, eval=FALSE}
+TMP <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/CT-FOCS/fantom5.EP_links.cell.rds")
+tmp <- unlist(TMP)
+
+FOCS_data <- cbind(as.character(names(tmp)),tmp)
+
+info <- str_split(FOCS_data[,1],"\\$")
+
+
+chr <- sapply(info,function(x){ x <- unlist(x)[3]})
+loc <- sapply(info,function(x){ x <- unlist(x)[4]})
+name <- sapply(info,function(x){ x <- unlist(x)[2]})
+ 
+
+gene.loc <- GRanges(chr,IRanges(as.integer(loc),
+                                as.integer(loc)))
+
+enh.object <- GRanges(FOCS_data[,2])
+
+CT_FOCS_fantom <- GInteractions(enh.object,gene.loc)
+CT_FOCS_fantom$gene.name <- name
+
+```
+
+
+data organzation EP links:
+1. getting GInteractions object
+2. remove chrY
+3. getting gene coordinates (since only promoter coordinates reported)
+```{r, eval=FALSE}
+
+prom <- GRanges(FOCS[,1],IRanges(FOCS[,2],FOCS[,3]),FOCS[,4])
+enh <- GRanges(FOCS[,5],IRanges(FOCS[,6],FOCS[,7]))
+
+FOCS_GI <- GInteractions(enh,prom)
+mcols(FOCS_GI) <- FOCS
+
+tmp <- FOCS_GI$sym_id
+mcols(FOCS_GI) <- NULL
+FOCS_GI$gene.name <- tmp
+
+CT_FOCS <- c(CT_FOCS_fantom,FOCS_GI)
+
+
+# remove chrY
+CT_FOCS <- CT_FOCS[chrom(anchorTwo(CT_FOCS))!="chrY"]
+
+
+
+
+
+
+
+
+
+
+
+
+
+# getting gene coordinates
+tss <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+
+
+gene.name.matching <- cbind(match(CT_FOCS$gene.name,tss$gene.name),1:length(CT_FOCS))
+gene.name.matching <- gene.name.matching[complete.cases(gene.name.matching),]
+
+
+FOCS.SS <- GInteractions(anchorOne(CT_FOCS[gene.name.matching[,2],]),
+            (tss[gene.name.matching[,1],]))
+
+  mcols(FOCS.SS) <- mcols(CT_FOCS[gene.name.matching[,2],])
+  
+FOCS.SS$name <- tss$gene.id[gene.name.matching[,1]]
+FOCS.SS$name2 <- tss$gene.name[gene.name.matching[,1]]
+
+
+saveRDS(unique(FOCS.SS),"/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/CT-FOCS/CT_FOCS_Processed.rds")
+
+
+```
+
+
+```{r}
+
+sessionInfo()
+```

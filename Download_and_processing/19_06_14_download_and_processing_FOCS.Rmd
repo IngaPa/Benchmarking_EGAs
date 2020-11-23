@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for FOCS
+
+# STEPS
+Download: Y
+Pooling: Y
+Data Organization: Y
+Mergining downloaded info: N
+Liftovering: N
+Filtering: N
+
+
+##Download: Y
+SOURCE:  http://acgt.cs.tau.ac.il/focs/download.html
+
+data accessed: FOCS enhancers (on the 15.1.2018.) 
+        http://acgt.cs.tau.ac.il/focs/data/encode.enh.pos.RData
+        http://acgt.cs.tau.ac.il/focs/data/roadmap.enh.pos.RData
+        http://acgt.cs.tau.ac.il/focs/data/fantom.enh.pos.RData
+        http://acgt.cs.tau.ac.il/focs/data/groseq.enh.pos.RData
+        
+        
+        
+FOCS enhancer-promoter links (on the 13.9.2018) 
+                      
+        http://acgt.cs.tau.ac.il/focs/data/encode_interactions.txt
+        http://acgt.cs.tau.ac.il/focs/data/roadmap_interactions.txt
+        http://acgt.cs.tau.ac.il/focs/data/fantom_interactions.txt
+        http://acgt.cs.tau.ac.il/focs/data/groseq_interactions.txt
+
+
+
+FOLDER: /data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/
+
+
+# paper summary:
+We accessed FOCS enhancers (on the 15.1.2018.) and enhancer-promoter links (on the 13.9.2018) from  http://acgt.cs.tau.ac.il/focs/download.html. We downloaded all four reported datasets of enhancer predictions: 1) 408,802 ENCODE DHS (http://acgt.cs.tau.ac.il/focs/data/encode.enh.pos.RData), 2) 470,546 Roadmap DHS (http://acgt.cs.tau.ac.il/focs/data/roadmap.enh.pos.RData),  3) 65,423 FANTOM5 CAGE (http://acgt.cs.tau.ac.il/focs/data/fantom.enh.pos.RData), and 4) 255,925 GRO-Seq enhancer regions (http://acgt.cs.tau.ac.il/focs/data/groseq.enh.pos.RData). 
+Additionally, we downloaded four reported sets of enhancer - gene FOCS associations: 1) ENCODE DHS (http://acgt.cs.tau.ac.il/focs/data/encode_interactions.txt), 2) the Roadmap Epigenomics project  DHS (http://acgt.cs.tau.ac.il/focs/data/roadmap_interactions.txt),  3) FANTOM5 CAGE (http://acgt.cs.tau.ac.il/focs/data/fantom_interactions.txt), and 4) GRO-Seq (http://acgt.cs.tau.ac.il/focs/data/groseq_interactions.txt), and pooled all of the reported interactions together. We wrote an in-house script to assign coordinates to the FOCS gene names by overlapping reported gene names with GENCODE v24 genes and taking over GENCODE extended (+/-1000 bp) TSS coordinates.  After excluding interactions on the chromosome Y, we obtained 117,355 unique FOCS EP links.
+
+
+
+
+# Data Organization:
+
+__1. Creating EG pairs from download 2__
+
+```{r, eval=FALSE}
+
+
+library(GenomicInteractions)
+library(stringr)
+library(InteractionSet)
+library(parallel)
+
+
+setwd("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/downloaded/")
+  names <- c("encode","roadmap","fantom","groseq")
+
+  FOCS_encode <- read.table("encode_interactions.txt",he=T, fill=T,stringsAsFactors = F)
+
+  
+  FOCS_groseq <- read.table("groseq_interactions.txt",he=T, fill=T,stringsAsFactors = F)
+      
+        
+    
+  FOCS_fantom <- read.table("fantom_interactions.txt",he=T,  fill=T,stringsAsFactors = F)
+    
+  
+  FOCS_roadmap <- read.table("roadmap_interactions.txt",he=T, fill=T,stringsAsFactors = F)
+    
+  
+  
+  
+ Input_Interactions <- c(nrow(FOCS_encode),
+                          nrow(FOCS_groseq),
+                           nrow(FOCS_fantom),
+                           nrow(FOCS_roadmap))
+  
+ names(Input_Interactions) <- c("ENCODE",
+                                "GRO-SEQ",
+                                "FANTOM",
+                                "Roadmap") 
+  
+ print("Input N of interactions")
+ print(Input_Interactions)
+ 
+ 
+ FOCS <- rbind(FOCS_groseq,
+               FOCS_encode,
+        FOCS_roadmap,
+        FOCS_fantom)
+ 
+ 
+```
+
+data organzation EP links:
+1. getting GInteractions object
+2. remove chrY
+3. getting gene coordinates (since only promoter coordinates reported)
+```{r, eval=FALSE}
+
+prom <- GRanges(FOCS[,1],IRanges(FOCS[,2],FOCS[,3]),FOCS[,4])
+enh <- GRanges(FOCS[,5],IRanges(FOCS[,6],FOCS[,7]))
+
+
+FOCS_GI <- GInteractions(enh,prom)
+mcols(FOCS_GI) <- FOCS
+
+# remove chrY
+FOCS_GI <- FOCS_GI[!FOCS_GI$p_chr=="chrY"]
+
+
+
+# getting gene coordinates
+tss <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+
+
+gene.name.matching <- cbind(match(FOCS_GI$sym_id,tss$gene.name),1:length(FOCS_GI))
+gene.name.matching <- gene.name.matching[complete.cases(gene.name.matching),]
+
+
+FOCS.SS <- GInteractions(anchorOne(FOCS_GI[gene.name.matching[,2],]),
+            (tss[gene.name.matching[,1],]))
+
+mcols(FOCS.SS) <- mcols(FOCS_GI[gene.name.matching[,2],])
+
+FOCS.SS$name <- tss$gene.id[gene.name.matching[,1]]
+FOCS.SS$name2 <- tss$gene.name[gene.name.matching[,1]]
+
+
+saveRDS(unique(FOCS.SS),"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.R")
+
+
+```
+
+
+
+data organzation enhancers links:
+```{r, eval=FALSE}
+
+setwd("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/downloaded/")
+
+  FOCS_encode <- get(load("encode.enh.pos.RData"))
+  FOCS_groseq <- get(load("groseq.enh.pos.RData"))
+  FOCS_fantom <- get(load("fantom.enh.pos.RData"))
+  FOCS_roadmap <- get(load("roadmap.enh.pos.RData"))
+  
+  setwd("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/")
+  export(FOCS_roadmap,"FOCS_roadmap.bed")
+  export(FOCS_groseq,"FOCS_groseq.bed")
+  export(FOCS_fantom,"FOCS_fantom.bed")
+  export(FOCS_encode,"FOCS_encode.bed")
+
+
+```
+
+
+```{r}
+
+sessionInfo()
+```

@@ -1,0 +1,155 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for EnhancerAtlas
+
+# STEPS
+Download: Y
+Pooling: Y
+Data Organization: Y
+Mergining downloaded info: Y
+Liftovering: N
+Filtering: N
+Forcing: Y
+
+
+##Download: Y
+
+# paper summary:
+
+Downloaded on 18.11.2020. from ftp://ftp.ebi.ac.uk/pub/databases/ensembl/encode/integration_data_jan2011/byDataType/openchrom/jan2 011/dhs_gene_connectivity/ genomewideCorrs_above0.7_promoterPlusMinus500kb_withGeneNames_32celltypeCategories.bed8.gz
+
+
+
+__1. Creating EG pairs from download __
+
+```{r, eval=FALSE}
+
+
+# Short processing of EnhancerAtlas
+
+
+# DATA INPUT
+.libPaths("~/R/x86_64-redhat-linux-gnu-library/3.5/")
+library(stringr)
+library(GenomicRanges)
+library(InteractionSet)
+
+# function that uses coordinates from GENCODE and forces EGA object to have equal coordinates
+forceByname <- function(benchInteractions,interactions){
+  
+  # identifying gene names present in benchmark object and object used to 
+  # benchmark
+  
+  require(dplyr)
+  
+  # test if gene info present in data, if not forceByName should not be used
+  if (!any(str_detect(colnames(mcols(benchInteractions)),"name"))) {
+    
+    return(benchInteractions)
+    print("Non gene meta-data present in benchmark dataset")
+    
+  }
+  
+  if (!any(str_detect(colnames(mcols(interactions)),"gene.name"))) {
+    
+    return(benchInteractions)
+    print("Non gene meta-data present in interactions dataset")
+    
+  }
+  
+  
+  # name needs to be found in both datasets to run forceByName argument
+  
+  if (all(any(str_detect(colnames(mcols(benchInteractions)),"name"))&
+          any(str_detect(colnames(mcols(interactions)),"gene.name")))) {
+    
+    # merging in the manner of findOverlaps
+    AllBenchmarkEntries <- 1:length(benchInteractions)
+    
+    df1 <- data.frame(cbind(AllBenchmarkEntries,
+                            as.character(benchInteractions$name)))
+    df2 <- data.frame(cbind(1:length(interactions),
+                            interactions$gene.name))
+    colnames(df1) <- colnames(df2) <- c("integer","gene")
+    
+    # overlapping left_join  
+    matchedPairs <- left_join(df1,df2,by="gene")
+    
+    # removing duplicated entries
+    matchedPairs <- matchedPairs[!duplicated(matchedPairs[,1]),]
+    newLocations <- which(!is.na(matchedPairs[,3])) # pairs which name can be forced
+    oldLocations <- which(is.na(matchedPairs[,3])) # pairs which name cannot be forced
+    
+    # matched pairs - pooling together
+    
+    queryHits <- as.integer(as.character(matchedPairs[newLocations,3]))
+    subjetHits <- as.integer(as.character(matchedPairs[newLocations,1]))
+    
+    # creating GInteractions object    
+    benchInteractionsGenes <- interactions[queryHits]
+    benchInteractionsMatch <- benchInteractions[subjetHits]
+    benchInteractionsNOMatch <- benchInteractions[as.integer(as.character(matchedPairs[oldLocations,1]))]
+    
+    # pooling info together of those that can be forced by name and those that cannot  
+    BenchmarkDSForcedName=GInteractions(anchor1 = anchorOne(benchInteractionsMatch),
+                                        anchor2 = benchInteractionsGenes)
+    mcols(BenchmarkDSForcedName) <- mcols(benchInteractionsMatch)
+    
+    BenchmarkDSForcedName <- c(benchInteractionsNOMatch,
+                               BenchmarkDSForcedName)
+    
+    
+    
+    return(BenchmarkDSForcedName)
+  }
+}
+
+Thurman <- read.table("/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/Thurman2012/genomewideCorrs_above0.7_promoterPlusMinus500kb_withGeneNames_32celltypeCategories.bed8", sep="\t",fill = T,he=F)
+
+
+```
+
+# data organzation EP links:
+1. getting GInteractions object
+
+```{r, eval=FALSE}
+
+library(InteractionSet)
+
+
+      
+    Thurman.GI <- GInteractions(GRanges(Thurman[,1],IRanges(Thurman[,2],Thurman[,3])),
+                  (GRanges(Thurman[,5],IRanges(Thurman[,6],Thurman[,7]))))
+
+        Thurman.GI$name=as.character(Thurman[,4])
+
+```
+
+
+
+# force to be gencode
+
+```{r, eval=FALSE}
+# import source code for forcebyname()
+
+
+interactions <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+
+
+# force TSS coorinates
+BTH.GI.f <- forceByname(benchInteractions = Thurman.GI,
+                        interactions = interactions)
+
+saveRDS(unique(BTH.GI.f),"/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/Thurman2012/Thurman.GI.forcedByName.rds")
+
+```
+
+```{r}
+
+sessionInfo()
+```

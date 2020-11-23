@@ -1,0 +1,332 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for FOCS
+
+# STEPS
+Download: Y
+Pooling: Y
+Data Organization: Y
+Mergining downloaded info: N
+Liftovering: N
+Filtering: N
+Forcing coordinates:Y
+
+
+##Download: Y
+
+
+FOLDER: /data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/
+
+We downloaded four JEME datasets on the 11 October 2017 from http://yiplab.cse.cuhk.edu.hk/jeme/: elastic net and LASSO predictions (enhancer - gene links) for FANTOM5 and ENCODE/Roadmap cell types and tissues. 
+
+
+# paper summary:
+We downloaded four JEME datasets on the 11 October 2017 from http://yiplab.cse.cuhk.edu.hk/jeme/: elastic net and LASSO predictions (enhancer - gene links) for FANTOM5 and ENCODE/Roadmap cell types and tissues.  To define JEME enhancers, we pooled results of LASSO and elastic net predictions across all Roadmap cell types and tissues, and kept unique enhancer regions for identified links. A total of 668,716 and 682,569 unique cross-cell-type predictions was identified for ENCODE/Roadmap LASSO, ENCODE/Roadmap elastic net, and after pooling, this resulted in 258,613 unique enhancers. After we pooled all predictions across all four JEME datasets, we identified 929,682 unique enhancer-gene associations. Gene coordinates were set to be equal to the extended TSS coordinates (+/-1000 bp) for genes overlapping the GENCODE v24 genes. 
+
+
+
+
+# Pooling:
+
+__1. Creating EG pairs from download 2__
+
+```{r, eval=FALSE}
+
+
+
+
+Cao.papers <- list.files(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_elasticnet/",
+                         full.names = T)
+
+
+All.results <- lapply(Cao.papers,read.csv,he=F)
+
+All.r.df <- do.call("rbind.data.frame",All.results)
+
+
+library(GenomicRanges)
+library(stringr)
+
+
+
+
+All.r.df <- apply(All.r.df,2,as.character)
+All.r.df=All.r.df[!duplicated(All.r.df[,1:2]),]
+All.r.GR <- GRanges(All.r.df[,1])
+
+
+
+TSS_regions <- do.call("rbind.data.frame",str_split(All.r.df[,2],"\\$"))
+
+
+
+TSS_regions.gr <- GRanges(TSS_regions[,3],IRanges(as.integer(as.character(TSS_regions[,4])),
+                                                  as.integer(as.character(TSS_regions[,4]))))
+
+TSS_regions.gr <- promoters(TSS_regions.gr,1,1)
+
+
+All.r.GR$TSS <- TSS_regions.gr
+All.r.GR$gene <- TSS_regions[,1]
+All.r.GR$genename <-  TSS_regions[,2]
+All.r.GR$score <- All.r.df[,3]
+
+
+saveRDS(All.r.GR,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_elasticnet_pooled_processed_GR.rds")
+
+
+
+
+
+
+
+
+ 
+ 
+```
+
+
+
+```{r, eval=FALSE}
+
+library(GenomicRanges)
+library(stringr)
+
+
+
+Cao.papers <- list.files(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_lasso/",  full.names = T)
+
+
+All.results <- lapply(Cao.papers,read.csv,he=F)
+
+All.r.df <- do.call("rbind.data.frame",All.results)
+
+
+
+
+
+All.r.df <- apply(All.r.df,2,as.character)
+All.r.df=All.r.df[!duplicated(All.r.df[,1:2]),]
+
+
+All.r.GR <- GRanges(All.r.df[,1])
+for.bed <- data.frame(All.r.GR)
+
+write.table(for.bed[,1:3],"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_lasso_pooled_processed_GR.bed",
+            row.names = F, quote=F, col.names = F)
+
+TSS_regions <- do.call("rbind.data.frame",str_split(All.r.df[,2],"\\$"))
+
+TSS_regions.gr <- GRanges(TSS_regions[,3],IRanges(as.integer(as.character(TSS_regions[,4])),
+                                                  as.integer(as.character(TSS_regions[,4]))))
+
+TSS_regions.gr <- promoters(TSS_regions.gr,1,1)
+
+
+All.r.GR$TSS <- TSS_regions.gr
+All.r.GR$gene <- TSS_regions[,1]
+All.r.GR$genename <-  TSS_regions[,2]
+All.r.GR$score <- All.r.df[,3]
+
+
+saveRDS(All.r.GR,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloadedencoderoadmap_lasso_pooled_processed_GR.rds")
+
+
+All.r.GR <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloadedencoderoadmap_lasso_pooled_processed_GR.rds")
+
+
+
+```
+
+
+
+```{r, eval=FALSE}
+
+
+##########################
+# FANTOM5
+
+
+
+library(GenomicRanges)
+library(stringr)
+
+
+
+Cao.papers <- list.files(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fantom5_lasso/",  full.names = T)
+
+
+All.results <- lapply(Cao.papers,read.table,sep=",")
+
+read.csv("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fantom5_elasticnet/fantom5_elasticnet.8.csv")
+
+All.r.df <- do.call("rbind.data.frame",All.results)
+
+
+
+read.csv(Cao.papers[1])
+
+All.r.df <- apply(All.r.df,2,as.character)
+All.r.df=All.r.df[!duplicated(All.r.df[,1:2]),]
+head(All.r.df)
+
+All.r.GR <- GRanges(All.r.df[,1])
+for.bed <- data.frame(All.r.GR)
+
+write.table(for.bed[,1:3],"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_lasso_pooled_processed_GR.bed",
+            row.names = F, quote=F, col.names = F)
+
+TSS_regions <- do.call("rbind.data.frame",str_split(All.r.df[,2],"\\$"))
+
+TSS_regions.gr <- GRanges(TSS_regions[,3],IRanges(as.integer(as.character(TSS_regions[,4])),
+                                                  as.integer(as.character(TSS_regions[,4]))))
+
+TSS_regions.gr <- promoters(TSS_regions.gr,1,1)
+
+
+All.r.GR$TSS <- TSS_regions.gr
+All.r.GR$gene <- TSS_regions[,1]
+All.r.GR$genename <-  TSS_regions[,2]
+All.r.GR$score <- All.r.df[,3]
+
+
+saveRDS(All.r.GR,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_lasso_pooled_processed_GR.rds")
+
+
+
+
+
+
+
+```
+
+
+```{r, eval=FALSE}
+
+##########################
+# FANTOM5
+
+
+
+library(GenomicRanges)
+library(stringr)
+
+
+
+Cao.papers <- list.files(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fantom5_elasticnet/",full.names = T)
+
+
+All.results <- lapply(Cao.papers,read.csv,he=F)
+
+All.r.df <- do.call("rbind.data.frame",All.results)
+
+
+
+
+
+All.r.df <- apply(All.r.df,2,as.character)
+All.r.df=All.r.df[!duplicated(All.r.df[,1:2]),]
+head(All.r.df)
+
+All.r.GR <- GRanges(All.r.df[,1])
+for.bed <- data.frame(All.r.GR)
+
+write.table(for.bed[,1:3],"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_elasticnet_pooled_processed_GR.bed",
+            row.names = F, quote=F, col.names = F)
+
+TSS_regions <- do.call("rbind.data.frame",str_split(All.r.df[,2],"\\$"))
+
+TSS_regions.gr <- GRanges(TSS_regions[,3],IRanges(as.integer(as.character(TSS_regions[,4])),
+                                                  as.integer(as.character(TSS_regions[,4]))))
+
+TSS_regions.gr <- promoters(TSS_regions.gr,1,1)
+
+
+All.r.GR$TSS <- TSS_regions.gr
+All.r.GR$gene <- TSS_regions[,1]
+All.r.GR$genename <-  TSS_regions[,2]
+All.r.GR$score <- All.r.df[,3]
+
+
+saveRDS(All.r.GR,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_elasticnet_pooled_processed_GR.rds")
+
+
+
+```
+
+
+
+__2. Forcing coordinates and taking unique datasets__
+```{r, eval=FALSE}
+
+LASSO=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_lasso_pooled_processed_GR.rds")
+en=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_elasticnet_pooled_processed_GR.rds")
+FLASSO=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_elasticnet_pooled_processed_GR.rds")
+  Fen=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/FANTOM_lasso_pooled_processed_GR.rds")
+
+
+  length(LASSO)
+  length(FLASSO)
+  length(en)
+  length(Fen)
+  
+BTH <- c(en,LASSO,Fen,FLASSO)
+
+# create GI object
+BTH.GI=GInteractions(BTH,BTH$TSS)
+
+# get name and name2
+mcols(BTH.GI) <- DataFrame(cbind(name=as.character(str_extract(BTH.GI$anchor1.gene,".{15}")),
+                       name2=as.character(BTH.GI$anchor1.genename)))
+BTH.GI$name <- as.character(BTH.GI$name)
+BTH.GI$name2 <- as.character(BTH.GI$name2)
+
+# UNIQUE: 929682, ORGINAL 1703443
+BTH.GI <- unique(BTH.GI)
+
+# import source code for forcebyname()
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+
+# # get reg2gene full object
+# interactions=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/AAkalin_CatalogRI/Data/EnhGenePairs/EnhGeneFullDatasetunique_181002.rds")
+
+interactions <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+
+
+# force TSS coorinates
+BTH.GI.f <- forceByname(benchInteractions = BTH.GI,
+                        interactions = interactions)
+
+saveRDS(unique(BTH.GI),"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds")
+
+
+```
+
+
+
+#data organzation: getting enhancers:__
+```{r, eval=FALSE}
+
+LASSO=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_lasso_pooled_processed_GR.rds")
+en=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/encoderoadmap_elasticnet_pooled_processed_GR.rds")
+
+
+pooled <- unique(c(LASSO,en))
+
+saveRDS(pooled,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/JEME_elasticnet_lasso_Enhancers.rds")
+
+mcols(pooled) <- NULL
+
+export(pooled,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/JEME_elasticnet_lasso_Enhancers.bed")
+```
+
+
+```{r}
+
+sessionInfo()
+```

@@ -1,0 +1,373 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for GeneHancer
+
+# STEPS
+Download: Y
+Pooling: N
+Data Organization: Y
+Mergining downloaded info: N
+Liftovering: Y
+Filtering: Y
+Forcing coordinates:Y
+
+
+##Download: Y
+
+
+FOLDER: /data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/
+
+
+
+# paper summary:
+From https://genecards.weizmann.ac.il/geneloc/index.shtml, we downloaded single  .csv document (GeneHancer enhancers are not cell-type specific) with 243,281 GeneHancer enhancers on the 28.11.17. GeneHancer version was 4.6 and it contained enhancer locations and corresponding metadata; including names of associated genes. We wrote an inhouse R scripts to: 1) extract locations of enhancers, 2) obtain one-to-one mapping between genes and enhancers (necessary since more than one gene was reported to be associated with single enhancer region saved as one row of the table), 3) liftover hg38 to hg19 enhancer coordinates (liftOver and rtracklayer R packages), 4) obtain gene locations either by using GeneHancer-reported HCGN gene names or ENSEMBL IDs (biomaRt package, for the genome version GRCh37); and 5) set gene coordinates to be equal to the extended TSS coordinates (+/-1000 bp) of the GENCODE v24 genes.  Post processing, we defined 506,471 unique GeneHancer unique enhancer-promoter association
+
+
+
+# Pooling:
+
+__1. input and functions__
+
+```{r, eval=FALSE}
+
+GeneHancer <- read.csv("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_Database/genehancer.csv")
+
+
+
+####################
+# FUNCTIONS
+
+# extracting genes names
+
+library(stringr)
+library(parallel)
+
+    extract_genes <- function(x){
+        genes <- str_extract(x,"connected_gene=.*")
+        genes <- str_replace_all(genes,"score=[0-9]*.[0-9]*|connected_gene=","")
+        genes <- unlist(str_split(genes,";"))
+        genes <- genes[nchar(genes)>0]
+    }
+    
+# extracting enhancers names
+      extract_scores <- function(x){
+        
+        genes <- unlist(str_extract_all(x,"score=[0-9]*.[0-9]"))
+        genes <- str_replace_all(genes,"score=","")
+       
+      }
+
+# create 1-to-1 datatable (one enh-1 gene)
+      oneToOne <- function(x,
+                           GeneHancer,
+                           GenesPerEnh,
+                           ScoreGenesPerEnh){
+        
+        df <- GeneHancer[x,]
+        df <- df[rep(seq_len(nrow(df)),
+                     length( GenesPerEnh[[x]])),]
+        df$genes <- GenesPerEnh[[x]]
+        df$geneScore <- ScoreGenesPerEnh[[x]]
+        return(df)
+}
+
+
+
+ 
+ 
+```
+
+
+ STEP 0:          
+## get one-to-one mappig between genes and enhancers
+```{r, eval=FALSE}
+
+#####################
+# ANALYSIS
+  
+      
+# STEP 0:          
+# get promoters and their scores      
+GenesPerEnh <- mclapply(GeneHancer$attributes,extract_genes,mc.cores = 15)
+ScoreGenesPerEnh <- mclapply(GeneHancer$attributes,
+                             extract_scores,
+                             mc.cores = 30)
+
+# create 1-to-1 datatable (one enh-1 gene)
+        CreateGeneHancer <- mclapply(1:nrow(GeneHancer),
+                                   #1:10,
+                                   oneToOne,
+                                   GenesPerEnh=GenesPerEnh,
+                                   ScoreGenesPerEnh=ScoreGenesPerEnh,
+                                   GeneHancer=GeneHancer,
+                                   mc.cores = 30)
+      
+          CreateGeneHancer <- list()
+        
+       for (i in 1:nrow(GeneHancer)){
+                                     #1:10,
+                                    print(i)
+         CreateGeneHancer[[i]] <-     (oneToOne(x=i, 
+                                          GeneHancer=GeneHancer,
+                                          ScoreGenesPerEnh=ScoreGenesPerEnh,
+                                          GenesPerEnh=GenesPerEnh))
+       }
+  CreateGeneHancer <- do.call("rbind.data.frame",CreateGeneHancer)
+
+  
+  saveRDS(CreateGeneHancer,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_Database/18_06_05_GenEnhancerhg38_oneE_oneGenefor.rds")      
+  
+
+
+```
+
+
+
+## get GRCH37 coordinates for genes
+  
+```{r, eval=FALSE}
+
+# STEP 2
+# liftover Enhancer coordinates
+      GeneHancerFull <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/18_06_05_GenEnhancerhg38_oneE_oneGenefor.rds")
+library(rtracklayer)
+
+library(InteractionSet)
+ch = import.chain("/data/akalin/Base/Annotation/hg19/Liftover/hg38ToHg19.over.chain")
+
+# create GRamges object
+  GeneHancer.gr <- GRanges(as.character(GeneHancerFull[,1]),IRanges(as.integer(as.character(GeneHancerFull[,4])),as.integer(as.character(GeneHancerFull[,5]))))
+  colnames(GeneHancerFull) <- paste("C",colnames(GeneHancerFull),sep = "_")
+  mcols(GeneHancer.gr) <- GeneHancerFull
+  
+  seqlevelsStyle(GeneHancer.gr) = "UCSC"  # necessary
+
+  # liftover  
+  cur19.lo <- liftOver(GeneHancer.gr, ch)
+ 
+  # perform merging in 500 chunks cause otherwise to slow
+
+  
+  chunks=1000
+  Split.factor <- split(1:length(cur19.lo),
+                        sort(1:length(cur19.lo)%%chunks))
+  
+  
+  Chunks_merge <- function(x,cur19.lo){
+    
+    cur19 = do.call("c",cur19.lo[x])
+    saveRDS(cur19,
+            paste0("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/EP/",x[1],"chunk.rds"))
+             
+             
+  }
+  
+ 
+  parallel::mclapply(Split.factor,function(x){
+  
+    Chunks_merge(x,cur19.lo=cur19.lo)
+    
+  },
+                       mc.cores = 25)
+   
+    
+  
+  # Pooling togethre
+        
+        allGH <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/EP/", pattern="chunk.rds",full.names = T)
+        
+        
+        ALLdATA <- lapply(allGH,readRDS)
+        cur19 = do.call("c",ALLdATA)
+        
+       saveRDS(cur19,
+               "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/GeneHancerhg19_EPlinksGRanges.rds") 
+
+
+
+```
+
+# getting gene coordinates
++ filtering chrY
+```{r, eval=FALSE}
+
+# creating GInteractions obj
+      library(InteractionSet)
+
+    cur19 <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/GeneHancerhg19_EPlinksGRanges.rds") 
+
+
+
+# getting gene coordinates by matching names with GENCODE
+      tss <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+      
+      
+      # matching by ensembl id & by common name
+          gene.name.matching <- cbind(match(cur19$C_genes,tss$gene.id),
+                                      1:length(cur19))
+          gene.name.matching <- gene.name.matching[complete.cases(gene.name.matching),]
+      
+      # matching by ensembl id & by common name
+          gene.name.matching2 <- cbind(match(cur19$C_genes,tss$gene.name),
+                                       1:length(cur19))
+          gene.name.matching2 <- gene.name.matching2[complete.cases(gene.name.matching2),]
+          
+        gene.name.matching <- rbind(gene.name.matching,gene.name.matching2)
+          
+      cur19.SS <- GInteractions(cur19[gene.name.matching[,2],],
+                               (tss[gene.name.matching[,1],]))
+      
+        #add metadata 
+          mcols(cur19.SS) <- mcols(cur19[gene.name.matching[,2],])
+      
+          cur19.SS$name <- tss$gene.id[gene.name.matching[,1]]
+          cur19.SS$name2 <- tss$gene.name[gene.name.matching[,1]]
+
+     # filtering for chrY     
+          cur19.SS <- cur19.SS[seqnames(anchorOne(cur19.SS))!="chrY"]
+
+saveRDS(unique(cur19.SS),
+        "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds")
+    
+```
+
+
+# getting enhancers
+```{r, eval=FALSE}
+
+
+# STEP 2
+# liftover Enhancer coordinates
+      GeneHancer.gr <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/GeneHancerDatahg38ORGINAL.rds")
+library(rtracklayer)
+#library(liftOver)
+library(InteractionSet)
+ch = import.chain("/data/akalin/Base/Annotation/hg19/Liftover/hg38ToHg19.over.chain")
+
+# create GRamges object
+  
+  seqlevelsStyle(GeneHancer.gr) = "UCSC"  # necessary
+
+  # liftover  
+  cur19.lo <- liftOver(GeneHancer.gr, ch)
+ 
+  # perform merging in 500 chunks cause otherwise to slow
+
+  
+  chunks=500
+  Split.factor <- split(1:length(cur19.lo),
+                        sort(1:length(cur19.lo)%%chunks))
+  
+  
+  Chunks_merge <- function(x,cur19.lo){
+    
+    cur19 = do.call("c",cur19.lo[x])
+    saveRDS(cur19,
+            paste0("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/TMP/",x[1],"chunk.rds"))
+             
+             
+  }
+  
+ 
+  parallel::mclapply(Split.factor,function(x){
+  
+    Chunks_merge(x,cur19.lo=cur19.lo)
+    
+  }, mc.cores = 25)
+   
+    
+  
+  # Pooling togethre
+        
+          allGH <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/TMP/", pattern="chunk.rds",full.names = T)
+        
+        
+        ALLdATA <- lapply(allGH,readRDS)
+        cur19 = do.call("c",ALLdATA)
+        
+       saveRDS(cur19,
+               "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/GeneHancerhg19_Enhancers.rds") 
+ 
+```
+
+
+
+# separate processing of Table4
+```{r, eval=FALSE}
+
+# script to process Fishillevic data set:
+    # 1) creating GInteractions dataset
+    # 2) adding ensembl names  
+    # 3) filtering genes that have identified names
+    # 4) perform forcing by name
+
+# extracting enhancers from Fish
+
+Fishilevich <- readRDS("/data/akalin/Base/AccessoryData/Fishilevich_2017_GeneHancer_Database/Fishilevich_2017_GeneHancer_Database_GR.rds")
+FishE <- Fishilevich[Fishilevich$C_type=="enhancer"]
+
+
+# creating GInteractions dataset
+library(GenomicInteractions)
+
+FishillevicEnhGIx <- GInteractions(FishE,FishE$reg)
+    
+    mcols(FishillevicEnhGIx) <- mcols(FishE)
+
+
+
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+
+    
+  # adding ensembl names  
+    
+    library('biomaRt')
+    library(dplyr)
+    
+    mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+    genes <- FishillevicEnhGIx$C_targets
+        G_list <- getBM(filters= "hgnc_symbol", attributes= c("ensembl_gene_id","hgnc_symbol"),values=genes,mart= mart)
+        G_list <- G_list[!duplicated(G_list$hgnc_symbol),] #remove duplicated genes
+    
+    # filtering genes that have identified names
+    
+        matchedRegions <- (match(G_list$hgnc_symbol,FishillevicEnhGIx$C_targets))
+    
+        FishillevicEnhGIx <- FishillevicEnhGIx[matchedRegions]
+              FishillevicEnhGIx$name <- G_list$ensembl_gene_id
+              FishillevicEnhGIx$name2 <- G_list$hgnc_symbol
+          
+              
+  # perform forcing by name
+              
+  interactions <- readRDS("/data/local/ipatarc/AAkalin_reg2gene/Results/reg2geneLinks_ModelRes_18_10_01.rds")
+    
+    FishForced <- forceByname(benchInteractions = FishillevicEnhGIx,interactions = interactions)    
+
+    
+   
+    saveRDS(FishForced,"/data/akalin/Base/AccessoryData/Fishilevich_2017_GeneHancer_Database/Fishilevich_2017_Table4Enhancers_GeneHancer_forceByName.rds")
+    
+ 
+```
+
+
+# STATISTICS
+1. Number of interactions
+2. Number of enhancers
+```{r, echo=F, message=F }
+ length(readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds"))
+length(readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/GeneHancerhg19_Enhancers.rds"))
+```
+
+
+
+```{r}
+
+sessionInfo()
+```

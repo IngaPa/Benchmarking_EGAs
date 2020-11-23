@@ -1,0 +1,192 @@
+---
+title: "R Notebook"
+output:
+html_document:
+df_print: paged
+---
+
+# IDEA: Data download and processing log for EnhancerAtlas
+
+# STEPS
+Download: Y
+Pooling: Y
+Data Organization: Y
+Mergining downloaded info: Y
+Liftovering: N
+Filtering: N
+Forcing: Y
+
+
+##Download: Y
+
+# paper summary:
+
+We downloaded enhancer-target relationships for 70 EnhancerAtlas cell/tissue types form http://www.enhanceratlas.org/ on the 28.11.17. We used an in-house script to create a union of all enhancer - target relationships reported in different cell types, by pooling all reported interactions across cell types into one object. To account for the multiple observations of the same E - G association across multiple cell/tissue types, we requested that each enhancer-target relationship can occur only once in the final dataset. Since, only ENSEMBL transcript identifiers were reported, we performed ENST mapping to ENSG using EnsDb.Hsapiens.v75 to obtain gene IDs. Based on the overlap in ENSEMBL IDâ€™s between GENECODE and ENSEMBL reported genes, EnhancerAtlas gene coordinates were set to be equal to extended TSS coordinates (+/-1000 bp) of the GENCODE v24 genes.
+
+
+# Pooling:
+
+__1. Creating EG pairs from download 2__
+
+```{r, eval=FALSE}
+
+
+# Short processing of EnhancerAtlas
+
+
+# DATA INPUT
+library(stringr)
+library(GenomicRanges)
+library(InteractionSet)
+
+  EA <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/",full.names = T,pattern = "txt")
+  EA <- EA[!str_detect(EA,"2811")]
+  EA
+
+
+  a <- lapply(EA, function(x) { print(x) 
+      read.table(x, fill=T)})
+
+    library(plyr)
+    listA <- do.call("rbind.fill",a)
+
+
+# Rearranging it as GRanges
+
+EA <- GRanges(listA[,1],IRanges(listA[,2],listA[,3]))
+EA <- unique(EA)
+
+saveRDS(EA,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GRanges_allEnhancerAtlas.rds")
+
+#save as .BED
+
+EA.dt <- data.frame(EA)
+
+write.table(EA.dt[,1:3],quote=F,row.names=F,col.names = F,
+            "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/AllEnhancerAtlas.bed")
+
+ 
+saveRDS(EA.dt[,1:3],
+            "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/AllEnhancerAtlas.rds")
+
+```
+
+# data organzation EP links:
+1. getting GInteractions object
+
+```{r, eval=FALSE}
+
+setwd("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/")
+
+library(InteractionSet)
+
+All_cells <- list.files(pattern="EP.txt",full.names = T)
+
+ll=list()
+for (i in All_cells){
+  
+  print(i)
+      perCell <- read.table(i,stringsAsFactors = F,he=F, fill=T)
+      
+      ll[[i]] <- GRanges(perCell[,1],IRanges(perCell[,2],perCell[,3]),
+                         reg=GRanges(perCell[,5],IRanges(perCell[,6],perCell[,6])),
+                    name=perCell[,7])
+
+
+}
+
+
+
+gi.object <- do.call(getMethod(c, "GenomicRanges"), ll)
+gi.object2 <- GInteractions(gi.object,gi.object$reg)
+
+gi.object2 <- unique(gi.object2)
+saveRDS(gi.object2,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas.rds")
+
+# add $name meta-data
+gi.object2 <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas.rds")
+gi.object2$name <- gi.object2$anchor1.name
+saveRDS(gi.object2,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas.rds")
+
+
+```
+
+
+
+# 2. get ENSG
+
+idea getting info about ENST -> ENSG conversion for EnhancerAtlas
+why: necessary since in EA they provide only transcript ENST id's
+```{r, eval=FALSE}
+
+
+
+library(EnsDb.Hsapiens.v75)
+ 
+
+  enhancerAtlas <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas.rds")
+  edb <- EnsDb.Hsapiens.v75
+ 
+ ## Get all transcripts defined in Ensembl (version 75):
+ 
+     tx <- transcripts(edb, columns=c("tx_id", "gene_id", "gene_name"))
+
+ ## you can then extract the transcript ids and gene names or even
+ 
+     mapping <- cbind(tx_id=tx$tx_id, name=tx$gene_id, name2=tx$gene_name)
+
+ 
+ 
+ ## merging 2 info's together     
+     enhancerAtlas <- as.data.frame(enhancerAtlas)
+ 
+    EA.merged <- merge(enhancerAtlas,mapping,by.x='name',by.y="tx_id",all.x=T)
+     head(EA.merged)
+    
+ 
+     
+ # creating GInteractions object
+     
+     EA.GI <- GInteractions(GRanges(EA.merged$seqnames1,IRanges(EA.merged$start1,EA.merged$end1)),
+     GRanges(EA.merged$seqnames2,IRanges(EA.merged$start2,EA.merged$end2)))
+     
+
+     
+     EA.GI$name <- as.character(EA.merged$name.y)
+     EA.GI$name2 <- as.character(EA.merged$name2)
+     EA.GI$nameoriginal <- as.character(EA.merged$name)
+
+    
+  # save   
+    saveRDS(EA.GI,"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918.rds")
+     
+    
+
+
+
+```
+
+# force to be gencode
+
+```{r, eval=FALSE}
+# import source code for forcebyname()
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+
+# # get Enh full object
+BTH.GI=readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918.rds")
+
+interactions <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GENCODE/GENECODE_TSSes.rds")
+
+
+# force TSS coorinates
+BTH.GI.f <- forceByname(benchInteractions = BTH.GI,
+                        interactions = interactions)
+
+saveRDS(unique(BTH.GI),"/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds")
+
+```
+
+```{r}
+
+sessionInfo()
+```
