@@ -1,0 +1,230 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+# idea
+Get statistics for enhancer coverage for different publications
+
+```{r}
+library(rtracklayer)
+library(ggplot2)
+# library(reg2gene)
+library(stringr)
+library(parallel)
+library(GenomicRanges)
+library(GenomicInteractions)
+library(InteractionSet)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+source("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Scripts/Downstream/plots/generalPlot_functions.R")
+
+
+# TP from Gaasperini dataset
+inhouseM <- readRDS("/data/local/ipatarc/AAkalin_reg2gene/Results/inhouse_models.rds")
+
+enhancer_EGA_paths <- c( "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",                                                     
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",   
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
+
+names(enhancer_EGA_paths) <- c("JEME","GeneHancer","EnhancerAtlas","FOCS")
+
+
+
+```
+
+
+
+
+
+# Analysis
+```{r}
+     enh_genome_coverage <- getEnhCoverage(enhancer_EGA_paths,names =names(enhancer_EGA_paths) )
+    
+    # 1. quantify publication info for each enhancer base in the genome
+    enh_perBase_perPubl_coverage <- get_perPubl_BaseCoverage(enh_genome_coverage)
+
+
+```
+
+```{r}
+    
+    
+#######################################################################  
+## get number of enhancers per publication
+    # IMPORT EGA interactions
+        benchData <- lapply(enhancer_EGA_paths,function(x) {print(x)
+          return(unique(readRDS(x)))})
+        names(benchData) <- names(enhancer_EGA_paths)
+        
+        
+  # extract enhancers and get reduced dataset 
+        Enhancers <- lapply(names(benchData),function(x){
+          A=reduce(unique(anchorOne(benchData[[x]])))
+          A$paper <- x
+          return(A)
+          
+        })
+        
+            names(Enhancers) <- names(enhancer_EGA_paths)
+          
+        N_reducedEnhancers <- sapply(Enhancers,length) # after enhancers are reduced together
+            
+      
+        enh_perBase_perPubl_coverage <- sapply(Enhancers, function(x){sum(width(reduce(x)))})
+        
+################################
+# original enhancers
+#enhancers defined in publications
+     Enhancers_original <- lapply(names(enhancer_EGA_paths),
+                                  function(x){
+      
+             benchData <- unique(readRDS(enhancer_EGA_paths[x]))
+      
+                  A=unique(anchorOne(benchData))
+                  A$paper <- x
+                  return(A)
+  
+                        })
+          names(Enhancers_original) <- names(enhancer_EGA_paths)
+ 
+      N_originalEnhancers <- sapply(Enhancers_original,length) # original info about enhancers
+    
+  
+# get info about coverage        
+# genome-wide base coverage of enhancers covered by different publications      
+  enh <- c(Enhancers$JEME,Enhancers$GeneHancer,
+           Enhancers$FOCS,Enhancers$EnhancerAtlas)
+  
+  Enhancers_coverage <-  sum(width(reduce(enh)))
+      
+      
+# get size of the full genome
+    Full.genome <- sum(width(GRanges(coverage(GRangesList(Enhancers)))))    
+
+    
+# calculate genome coverage by enhancer definition      
+       EnhGenome_coverage <- round(100*enh_perBase_perPubl_coverage/Full.genome,1)
+       EnhEnh_coverage <- round(100*enh_perBase_perPubl_coverage/Enhancers_coverage,1)
+       
+       
+       print(paste0("percentage of the genome covered by enhancers: ",EnhGenome_coverage))
+       
+       
+      
+enh_stat <- data.frame(cbind(EnhGenome_coverage,
+                             EnhEnh_coverage,
+                  N_reducedEnhancers[names(EnhGenome_coverage)],
+                  N_originalEnhancers[names(EnhGenome_coverage)]))
+colnames(enh_stat) <- c("EnhGenome_coverage",
+                        "EnhEnh_coverage",
+                        "N_reducedEnhancers",
+                        "N_originalEnhancers")
+
+###############################
+# PLOT THE DATA USING GGPLOT2
+
+
+         colorScheme <- c("black","darkorange","blue","darkcyan")
+            names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+        
+        path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure1_publicationE/fig1A_bubbleplot_enh_def.png"
+        
+        png(path,width = 900, height = 900)
+          
+          
+          ggplot(data=enh_stat, aes(x=N_reducedEnhancers, y=EnhGenome_coverage)) +
+            geom_point(aes(size=N_originalEnhancers,
+                           colour=rownames(enh_stat))) +
+            scale_color_manual(values=colorScheme[rownames(enh_stat)])+
+            scale_size_continuous(range=c(10,40)) +
+            theme(legend.position = "none",
+                  plot.margin = unit(c(1,1,2.5,2.5), "cm"),
+                  panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(),
+                  panel.background = element_blank(), 
+                  axis.line = element_line(colour = "black"),
+                  axis.title = element_text(size=50,face="bold"),
+                  axis.text =element_text(size=40,face="bold"),
+                  text = element_text(size=40,face="bold", vjust = 2))+
+            geom_text(aes(label=rownames(enh_stat)),
+                      hjust=0.5, vjust=-2,size=15, fontface="bold")+
+            xlab("\nN of enhancers") +
+            ylab("% of genome coverage\n") +
+            scale_x_continuous(limits = c(0, 350000),labels = scales::comma)+
+            scale_y_continuous(limits = c(0, 40))
+          
+        
+          dev.off()
+
+      
+#############################################################
+# print table for statistics
+          
+          
+           png("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/fig1A_bubbleplot_enh_def_inputdata.png" , 
+               height=280, width=600)
+           library(gridExtra)
+           p<-tableGrob(enh_stat)
+           grid.arrange(p)
+           dev.off()
+            
+```
+
+#n of basepairs covered by combiantion of enhancer definitions: 1-4
+
+```{r}
+             
+
+# n of basepairs covered by combiantion of enhancer definitions: 1-4
+        
+coverage <- list() 
+   
+  for (i in 1:4){
+      coverage[[i]] <- sum(width(enh_genome_coverage[enh_genome_coverage$score==i]))
+    }
+
+    # pooling data
+      enh_covered_by_methods <- data.frame(round(100*unlist(coverage)/Enhancers_coverage,1))
+
+    enh_covered_by_methods <- cbind(enh_covered_by_methods,rownames(enh_covered_by_methods))
+     colnames(enh_covered_by_methods) <- c("value","category")
+     
+
+path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/supp_fig1A_enhCoverage.png"
+png(path,width = 900, height = 800)
+
+
+
+ ggplot(enh_covered_by_methods, aes(y=value, x=category)) + 
+    geom_bar(position="dodge", stat="identity",fill="orange")+
+  scale_y_continuous(limits = c(0, 100))+
+    geom_text(aes(label=value), vjust=0,size=15) +
+ ylab("%[enhancer def coverage]\n") +
+    xlab("\nEnhancer category") +
+    theme(#legend.position = "none",
+          plot.margin = unit(c(1,1,4,2.5), "cm"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          text = element_text(size=40,face="bold"))
+ 
+ 
+ dev.off()
+
+
+```
+
+
+
+Results: 
+925479036 bases in the genome is covered by one definition of enhancer 72.4%
+311707159 bases in the genome is covered by two definition of enhancer 24.4%
+37735540 bases in the genome is covered by three definition of enhancer 2.9%
+3760226 bases in the genome is covered by four definition of enhancer 0.3%
+
