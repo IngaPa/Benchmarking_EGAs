@@ -1,0 +1,108 @@
+---
+title: "EGA overlap"
+output: html_document
+---
+
+# idea
+Get statistics for enhancer coverage for different publications
+
+```{r}
+library(rtracklayer)
+library(ggplot2)
+# library(reg2gene)
+library(stringr)
+library(parallel)
+library(GenomicRanges)
+library(GenomicInteractions)
+library(InteractionSet)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+source("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Scripts/Downstream/plots/generalPlot_functions.R")
+
+
+
+
+enhancer_EGA_paths <- c( "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",                                                     
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",   
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
+
+names(enhancer_EGA_paths) <- c("JEME","GeneHancer","EnhancerAtlas","FOCS")
+
+
+  benchData <- lapply(enhancer_EGA_paths,function(x) {print(x)
+          return(unique(readRDS(x)))})
+        names(benchData) <- names(enhancer_EGA_paths)
+
+```
+
+
+
+
+
+# Analysis
+
+
+
+```{r}
+        
+        
+
+# get list of pb enhancers and associated publication info
+ perbp_enhancer <- getEnhCoverage(enhancer_EGA_paths,
+                                  names =  names(enhancer_EGA_paths))
+ 
+perCategoryWidth <- sapply(1:4,function(i){
+
+  return(sum(width(perbp_enhancer[perbp_enhancer$score==i])))  
+  
+})
+
+
+# perccentage across categories
+df <- round(100*perCategoryWidth/sum(width(perbp_enhancer)),1)
+
+df.f <- data.frame(
+  Categories = 1:4,
+  value =as.vector(df)
+  )
+
+library(ggplot2)
+# Barplot
+
+
+ 
+
+path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure1_publicationE/fig1Z_Categories_coverage.png"
+png(path,width = 900, height = 800)
+
+
+color <- c("white","lightred","red1","red3")
+
+df.f$Categories <- as.factor(df.f$Categories)
+
+ggplot(df.f, aes(x="", y=value, fill=Categories,color=Categories))+
+geom_bar(width = 0.3, stat = "identity")+
+  xlab("\n Enhancer coverage ") +
+    ylab("% of enhancer bp \n") +
+    theme(#legend.position = "none",
+          plot.margin = unit(c(1,1,2.5,2.5), "cm"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          text = element_text(size=50,face="bold"))+
+   scale_fill_manual("Categories", values = c("1" = "ivory2", "2" = "tomato", "3" = "red1","4"="red3"))+
+  scale_color_manual("Categories", values = c("1" = "ivory2", "2" = "tomato", "3" = "red1","4"="red3"))
+ 
+ 
+ dev.off()
+ 
+ 
+ 
+
+
+ 
+```
+
+

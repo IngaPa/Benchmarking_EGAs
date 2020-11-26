@@ -1,0 +1,336 @@
+---
+title: "Creating set of negatives for other publications and obtaining statistics"
+output: html_document
+---
+
+
+#IDEA: 
+
+Check how enhancer regions are analyzed by ChromHMM. If they correspond to enhancers,promoters, etc.
+
+
+#HOW TO
+
+1) individually for all FOCS/JEME/GeneHancer/EnhancerAtlas/inhouse enhancers screen trough ChromHMM predictions and identify if some regions are repressed, heterochromatin, etc across all cell types (get mnemomics)*
+
+2) get statistics for enhancer regions that are actually repressed
+
+3) overlap repressed enhancers and identify in how many EP links they apprear
+
+
+__*Create a set of negatives that will be used to test our models__
+Negatives will be selected from the set of enhancers that we are testing in by individual published method, by screening these regions throuhg ChromHMM models across all Roadmap cell types, 
+searching for reg2gene enhancer regions that were predicted by ChromHMM as __NOT__ being "12_EnhBiv","11_BivFlnk","10_TssBiv","8_ZNF/Rpts","7_Enh","6_EnhG","5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" in __ALL__ cell types. In other words, enhancer regions that are repressed (quies, polycomb repressed, etc.) or similar across all Roadmap cell types 
+
+
+
+step1 compare individual publications enhancer region definition (confirming we do good job with enhancers, MARCH 2019)
+step 2 identify EGA that are based on enhancer regions which should be repressed
+
+
+__help__
+trello board with described mnemomics:
+for reg2gene
+https://trello.com/c/O02fe5Ur/303-performance-assessment-creating-negatives
+for other methods
+https://trello.com/c/lnTXqz1z/320-proof-of-concept-enhancer-regions
+
+
+```{r setup, include=FALSE}
+
+# "/home/ipatarc/R/x86_64-redhat-linux-gnu-library/3.5"
+
+
+```
+
+## STEP 1: Get mnemonics
+ IDEA: detecting if in FOCS/JEME/GeneHancer/EnhancerAtlas set of enhancers I can identify enhancers that are repressed in the full dataset
+ 
+```{r , eval=FALSE}
+
+.libPaths("/home/ipatarc/R/x86_64-redhat-linux-gnu-library/3.5")
+library(GenomicInteractions)
+library(stringr)
+library(pheatmap)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+
+image.path <- "/data/akalin/Projects/AAkalin_Catalog_RI/AAkalin_CatalogRI/Results/Plots/"
+
+
+# mnemonics files input
+mnemonicsFil <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Roadmap/All_mnemonics_bedFiles", pattern = ".bed$", full.names = T)
+
+
+
+
+
+names <- c("inhouseModels","flexible","stringent","jeme","GeneHancer","EnahncerAtlas","FOCS")
+Publ = c("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Inhouse_Enhancers_and_EGA_Analysis/EGA/step4_filtering_and_voting/voting/inhouse_models.rds", 
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Inhouse_Enhancers_and_EGA_Analysis/EGA/step5_unifyingEnhDef/flexible.rds",
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Inhouse_Enhancers_and_EGA_Analysis/EGA/step5_unifyingEnhDef/stringent.rds",
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",
+           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
+           
+ names(Publ) <- names     
+
+
+  path1="/data/local/ipatarc/AAkalin_CatalogRI/Data/mnemonics/"
+
+
+ lapply(Publ,
+              function(x){
+                # x=Publ[5]
+                
+                print(x)
+                interactions = readRDS(x)
+                
+               
+                enhancerRegions=unique(anchorOne(interactions))
+                      print(paste0("N enhancers",length(enhancerRegions)))
+                # Filtering out chrY
+                enhancerRegions <- enhancerRegions[!seqnames(enhancerRegions)%in%c("chrY","chrM")]
+                      print(paste0("N enhancers without chrY",length(enhancerRegions)))
+      
+                      # enhancerRegions=enhancerRegions[1:1000]
+                # splitting data into chunks
+                 
+      Split.factor <- split(1:length(enhancerRegions),
+                      sort(1:length(enhancerRegions)%%as.integer(100)))
+
+      print(length(Split.factor))
+     
+       
+      Split.Results = lapply(Split.factor,function(split.round){
+    
+      
+            print(unlist(split.round))
+       
+                Mnem_FOR_Enh <- getMnemonics(mnemonicsFil,
+                                             enhancerRegions=enhancerRegions[unlist(split.round)],
+                                             mc.cores=30)
+              
+                saveRDS(Mnem_FOR_Enh,
+                    paste0(path1,
+                           "chunk",
+                           split.round[[1]][1],
+                           str_replace(basename(x),".rds",""),"RegionsMnemonics_19_01_23.rds"))
+               
+              })
+
+
+      
+      # Pooliing data together
+      
+            mnemLists <- lapply(list.files(path1,
+                                           pattern=str_replace(basename(x),".rds",""),full.names = T),
+                   readRDS)
+      
+                       mnemListsPooled <- do.call("c",mnemLists)
+                       mnemListsPooled <- lapply(mnemListsPooled,as.character)
+                       mnemLists.df <- do.call("rbind.data.frame",mnemListsPooled)
+                   
+                  rownames(mnemLists.df) <- names(mnemListsPooled)
+                  colnames(mnemLists.df) <- rownames(mnemLists[[1]])
+             
+                                
+               saveRDS(mnemLists.df,paste0(path1,"Full",
+                                 str_replace(basename(x),".rds",""),"RegionsMnemonics_19_01_23.rds"))
+               
+            
+               
+               
+                })
+ 
+ 
+            system("cp $(find . | grep Full) /data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/")              
+          
+```
+
+===========================================
+waiting for results
+
+# How many FOCS interactions should be reported as repressed?
+n[EGA]=302
+n[e]=
+```{r }
+
+library(GenomicInteractions)
+library(stringr)
+library(pheatmap)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+
+Mnem_FOR_Enh <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/Full19_06_17_FOCS_pooled_processed_interactionsRegionsMnemonics_19_01_23.rds")
+
+
+# creating Granges object
+      # Mnem_FOR_Enh_2 <- t(Mnem_FOR_Enh)
+      
+      EnhRegions <- GRanges(str_replace(str_replace(rownames(Mnem_FOR_Enh),"\\.",":"),"\\.","-"))
+            mcols(EnhRegions) <- DataFrame(Mnem_FOR_Enh)
+
+
+# binarize mnemonics marks, count and report in how many cell types this region is repressed 
+perEnhancerRepressedBinary <- binarizeFunction(EnhRegions,
+                                               categories= c("12_EnhBiv","11_BivFlnk","10_TssBiv","8_ZNF/Rpts","7_Enh","6_EnhG","5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" ))
+
+
+
+RepressedEnhRegions <- EnhRegions[which(perEnhancerRepressedBinary==127)]
+
+
+
+FOCS_summary <- (length(RepressedEnhRegions))
+```
+
+
+
+
+# How many JEME interactions should be reported as repressed?
+671
+```{r }
+
+
+library(GenomicInteractions)
+library(stringr)
+
+Mnem_FOR_Enh <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/FullfANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19RegionsMnemonics_19_01_23.rds")
+
+
+# creating Granges object
+      # Mnem_FOR_Enh_2 <- t(Mnem_FOR_Enh)
+      
+      EnhRegions <- GRanges(str_replace(str_replace(rownames(Mnem_FOR_Enh),"\\.",":"),"\\.","-"))
+            mcols(EnhRegions) <- DataFrame(Mnem_FOR_Enh)
+
+
+# binarize mnemonics marks, count and report in how many cell types this region is repressed 
+perEnhancerRepressedBinary <- binarizeFunction(EnhRegions,
+                                               categories= c("12_EnhBiv","11_BivFlnk","10_TssBiv",
+                                                             "8_ZNF/Rpts",
+                                                             "7_Enh","6_EnhG",
+                                                             "5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" ))
+
+RepressedEnhRegions <- EnhRegions[which(perEnhancerRepressedBinary==127)]
+JEME_summary <- (length(RepressedEnhRegions))
+
+```
+
+
+
+
+
+
+# How many GeneHancer interactions should be reported as repressed?
+
+```{r }
+
+
+library(GenomicInteractions)
+library(stringr)
+
+Mnem_FOR_Enh <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/FullFishilevich_2017_GeneHancer_hg19_GInteractions_190606RegionsMnemonics_19_01_23.rds")
+
+
+# creating Granges object
+      # Mnem_FOR_Enh_2 <- t(Mnem_FOR_Enh)
+      
+      EnhRegions <- GRanges(str_replace(str_replace(rownames(Mnem_FOR_Enh),"\\.",":"),"\\.","-"))
+            mcols(EnhRegions) <- DataFrame(Mnem_FOR_Enh)
+
+
+# binarize mnemonics marks, count and report in how many cell types this region is repressed 
+perEnhancerRepressedBinary <- binarizeFunction(EnhRegions,
+                                               categories= c("12_EnhBiv","11_BivFlnk","10_TssBiv",
+                                                             "8_ZNF/Rpts",
+                                                             "7_Enh","6_EnhG",
+                                                             "5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" ))
+
+RepressedEnhRegions <- EnhRegions[which(perEnhancerRepressedBinary==127)]
+GH_summary <- (length(RepressedEnhRegions))
+
+```
+
+
+
+# How many EnhancerAtlas interactions should be reported as repressed?
+
+```{r }
+
+
+library(GenomicInteractions)
+library(stringr)
+
+Mnem_FOR_Enh <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/FullGInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930RegionsMnemonics_19_01_23.rds")
+
+
+# creating Granges object
+      # Mnem_FOR_Enh_2 <- t(Mnem_FOR_Enh)
+      
+      EnhRegions <- GRanges(str_replace(str_replace(rownames(Mnem_FOR_Enh),"\\.",":"),"\\.","-"))
+            mcols(EnhRegions) <- DataFrame(Mnem_FOR_Enh)
+
+
+# binarize mnemonics marks, count and report in how many cell types this region is repressed 
+perEnhancerRepressedBinary <- binarizeFunction(EnhRegions,
+                                               categories= c("12_EnhBiv","11_BivFlnk","10_TssBiv",
+                                                             "8_ZNF/Rpts",
+                                                             "7_Enh","6_EnhG",
+                                                             "5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" ))
+
+
+RepressedEnhRegions <- EnhRegions[which(perEnhancerRepressedBinary==127)]
+EA_summary <- length(RepressedEnhRegions)
+```
+
+
+
+
+
+
+
+
+
+
+```{r, results="asis" }
+
+
+full_summary <-as.data.frame( rbind(EA_summary,FOCS_summary,GH_summary,JEME_summary))
+full_summary$Publication <- as.factor(c("EnhancerAtlas","FOCS","GeneHancer","JEME"))
+
+
+#############################
+# version 2 plot
+
+
+ colorScheme <- c("black","darkorange","blue","darkcyan" )
+    names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+colors <- colorScheme[levels(full_summary$Publication)]
+
+
+png("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure1_publicationE/fig1H_repressedEnhancers.png",
+    width = 1200,height = 700)
+
+ggplot(full_summary,aes(x=Publication,y=V1,fill=Publication)) +  
+  stat_summary(fun.y=mean,position="dodge",geom="bar",width = 0.5) +  
+  scale_fill_manual(values =  alpha(colors, .7))+
+  
+  ylab("N repressed enhancers \n in Roadmap dataset\n ") +
+  xlab("\nPublication") + 
+  
+  theme_minimal()+
+  theme(text = element_text(size=40,face="bold"),
+        axis.title=element_text(size=50,face="bold"),
+        axis.text =element_text(size=40,face="bold"),
+        #legend.text = element_text(size=30,face="bold"),
+        legend.position="none")+
+  geom_text(aes(label = V1), size = 16, hjust = 0.50, vjust = -0.65, position = "stack")+
+  ylim(0,15000)
+
+
+dev.off()
+
+```
