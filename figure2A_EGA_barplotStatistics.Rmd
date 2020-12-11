@@ -1,0 +1,113 @@
+---
+title: "EGA overlap"
+output: html_document
+---
+
+# idea
+Get statistics for enhancer coverage for different publications
+
+```{r}
+library(rtracklayer)
+library(ggplot2)
+# library(reg2gene)
+library(stringr)
+library(parallel)
+library(GenomicRanges)
+library(GenomicInteractions)
+library(InteractionSet)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+source("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Scripts/Downstream/plots/generalPlot_functions.R")
+
+
+
+# TP from Gaasperini dataset
+inhouseM <- readRDS("/data/local/ipatarc/AAkalin_reg2gene/Results/inhouse_models.rds")
+
+enhancer_EGA_paths <- c( "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",                                                     
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",   
+                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
+
+names(enhancer_EGA_paths) <- c("JEME","GeneHancer","EnhancerAtlas","FOCS")
+
+
+```
+
+
+
+
+
+# Analysis
+
+
+# get overlaps for EGA 
+```{r}
+
+# 2,523,325 elements in the genome that is called enhancer
+
+# get EGA object
+
+    # IMPORT EGA interactions
+        benchData <- lapply(enhancer_EGA_paths,function(x) {print(x)
+          return(unique(readRDS(x)))})
+        names(benchData) <- names(enhancer_EGA_paths)
+        
+        
+        enhancers <- sapply(benchData, function(x){length(unique(anchorOne(x)))})
+        
+        
+        genes <- sapply(benchData, function(x){length(unique(anchorTwo(x)))})
+        
+        EGA <- sapply(benchData, length)
+        
+       stat <- as.data.frame(EGA,scientific = T))
+        stat$Publication <- names(enhancers)
+        stat$stat <- rep("EGA",4)
+        
+        colorScheme <- c("black","darkorange","blue","darkcyan")
+names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+        stat$color <- colorScheme[stat$Publication]
+        colnames(stat)[1] <- "value"
+        
+    path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure2_publicationEGA/fig2A_EGA_barplot.png"
+png(path,width = 500, height = 520)
+
+# 
+#    colorScheme <- c("black","darkorange","blue","darkcyan")
+#             names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+# 
+#           
+            
+ ggplot(stat, aes(fill=Publication, y=format(value,scientific = T), x=Publication)) + 
+    geom_bar(position="dodge", stat="identity",size=0.7)+ scale_y_discrete(labels =c("0.5M","1M","1.5M","2M")) +
+    ylab("N of EGAs\n") +
+    xlab("\n Publication") +
+    theme(#legend.position = "none",
+          plot.margin = unit(c(1,1,1,2.5), "cm"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          text = element_text(size=40,face="bold"),
+          axis.text.x = element_text(angle = 45,hjust = 1),
+          legend.position="none")+ 
+   
+    #scale_y_continuous(labels = "scientific")+
+scale_fill_manual("Publication", values = c("FOCS" = "black", "GeneHancer" = "darkorange", "JEME" = "blue","EnhancerAtlas"="darkcyan"))
+ 
+ 
+ dev.off()
+ 
+ 
+  png("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/supplement_stat_fig2A_EGA_E_G_barplot.png" , 
+               height=280, width=600)
+           library(gridExtra)
+           p<-tableGrob(stat)
+           grid.arrange(p)
+           dev.off()
+ 
+ 
+```
+
+
