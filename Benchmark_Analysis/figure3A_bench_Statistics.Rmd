@@ -1,0 +1,73 @@
+---
+title: "EGA overlap"
+output: html_document
+---
+
+# idea
+Get statistics for enhancer coverage for different publications
+
+```{r}
+library(rtracklayer)
+library(ggplot2)
+# library(reg2gene)
+library(stringr)
+library(parallel)
+library(GenomicRanges)
+library(GenomicInteractions)
+library(InteractionSet)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
+source("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Scripts/Downstream/plots/generalPlot_functions.R")
+
+
+
+# TP from Gaasperini dataset
+gtex = readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GTEx/Processed/GTX.df.txt_formatted_uniqueEPpairs_forcebyName_190702.rds")
+
+
+eQTLs = readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/eQTL/Westra/Westrahg19_EPlinksGRanges.rds")
+
+
+CCSI = readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Xia_CCSI_2016/Processed/Pooled_hg19_all_CCSI_Datasets_processedGI.rds")
+
+
+
+Javierre =  readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Javierre_2016_Cell_PCHiC/Javierre_processed_19_06_14.rds")
+
+pooledBenchmark <- list(gtex,eQTLs,CCSI,Javierre)
+names(pooledBenchmark) <- c("GTEx","W. eQTLs","CCSI","PCHiC")
+
+        
+
+
+df <- as.data.frame(sapply((pooledBenchmark),length))
+df$Bench <- rownames(df)
+colnames(df)[1] <- "size"
+
+path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure4_benchmarking/fig4A_benchmarkStatistics.png"
+png(path,width = 1100, height = 700)
+
+
+
+ ggplot(df, aes(fill=Bench, y=size, x=Bench)) + 
+    geom_bar(position="dodge", stat="identity",width = 0.7)+
+ xlab("\n Benchmark dataset") +
+    ylab("Size\n") +
+    theme(legend.position = "none",
+          plot.margin = unit(c(1,1,2.5,2.5), "cm"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black"),
+          text = element_text(size=40,face="bold"))+
+    scale_fill_brewer()
+ 
+ 
+ dev.off()
+ 
+ 
+ 
+
+```
+
+
