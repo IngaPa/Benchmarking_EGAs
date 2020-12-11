@@ -1,0 +1,103 @@
+---
+title: "ComparingEP_links"
+output: html_document
+---
+
+
+#IDEA:
+Comparing Publiaction EGAs
+
+```{r setup, include=FALSE}
+library(stringr)
+library(pheatmap)
+library(GenomicRanges)
+library(GenomicInteractions)
+library(InteractionSet)
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/downstreamFunctions.R")
+
+```
+
+
+```{r}
+
+benchResults <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Benchmarking/", "Val.rds",full.names = T)[c(2,4,6,9)]
+
+
+
+benchList <- lapply(benchResults,readRDS) # the last one is full reg2gene object
+
+names(benchList) <- c("EnhancerAtlas","FOCS","GeneHancer","JEME")
+
+
+
+```
+
+How many EP links across different publications:
+
+```{r}
+lapply(benchList,length)
+```
+
+Getting results of beench2bench analysis
+
+
+```{r , fig.height=15, fig.width=15}
+b2b <- extractB2B(benchList,names = c("EnhancerAtlas","FOCS","GeneHancer","JEME"))
+
+b2b <- b2b[colnames(b2b),]
+
+b2b.maxN <- c( 929682,506471,2327946,117355 )
+
+
+pheatmap(b2b,
+         display_numbers = T,
+         number_format = "%.0f",fontsize = 14)
+
+ratio <- round(100*(b2b/b2b.maxN),0)
+pheatmap(ratio,display_numbers = T,number_format = "%.0f",fontsize = 14)
+
+
+
+
+
+library(reshape2)
+melted_cormat <- melt(ratio)
+melted_cormat$Publication <- colnames(ratio)
+
+
+# Heatmap
+library(ggplot2)
+
+path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure3_inhouse_E_EGA/fig4D_similarity.png"
+
+png(path,height =550, width = 850)
+
+ggplot(data = melted_cormat, aes(variable , Publication, fill = value))+
+  
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 50, limit = c(0,100), space = "Lab", 
+                       name="Overlap (%)") +
+  ylab("")+
+  xlab("")+
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 40, hjust = 1,face="bold"),
+        axis.title = element_text(size=50,face="bold"),
+        axis.text.y =element_text(size=40,face="bold"),
+        legend.text = element_text(size=28,face="bold"),
+        legend.title =  element_text(size=30,face="bold"))+
+  geom_text(aes(variable, Publication, label = value), color = "black", size =13) +
+  coord_fixed()
+
+
+dev.off()
+
+
+
+
+
+```
+
+
+
