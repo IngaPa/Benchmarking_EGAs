@@ -1,3 +1,10 @@
+# IDEA: using Gasperini dataset define TP EGAs in the genome as well as FN - 
+# this is done by identifying T enhancers, and testing which interactions were predicted or not
+# in the 2nd step we test number of enhancer that overlap enhaners which activity was not identified well
+
+# thus, I have 2 directions of analysis:
+# 1) overlap succesful enhancers: and get TP EGAs, FN EGAs, and TN EGAs, FP enhaneers
+ 
 
 .libPaths("~/R/x86_64-redhat-linux-gnu-library/3.5/")
 library(rtracklayer)
@@ -11,214 +18,152 @@ library(InteractionSet)
 source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
 source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/projectHelpFunctions.R")
 source("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Scripts/Downstream/plots/generalPlot_functions.R")
-options("scipen"=100, "digits"=4)
-
-# 4* higher overlap with HIC but ranking stayed the same
-Fullgenome <- 3094490490
+source("/data/akalin/Projects/AAkalin_reg2gene/reg2gene/R/BenchmarkGInteractions.R")
 
 
-paths <- c("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
-           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",
-           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",
-           "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
-
-
-names(paths) <- c("JEME","GeneHancer","EnhancerAtlas","FOCS")
-
-
-
-bench_path <- "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GTEx/Processed/GTX.df.txt_formatted_uniqueEPpairs_forcebyName_190702.rds"
-
-
-
-getRepressedRegions <- function(path.mnem="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/"){
+#Filtering out enhancers that could not be benchmarked at all
+filterEnhancer <- function(EGA,GaspEnhancers){
   
+  Enhancers <- anchorOne(EGA)
   
-  mne <- list.files(path.mnem,full.names = T)[c(1:3,5)]
+  Data <- as.data.frame(findOverlaps(Enhancers,
+                                     GaspEnhancers))
   
-  
-  OriginalData.path <- c("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/FOCS.rds",
-                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/JEME.rds",
-                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/GeneHancer.rds",
-                    "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/EnhancerAtlas.rds")
-  
-  
-  names(mne) <- names(OriginalData.path) <-  c("FOCS","JEME","GeneHancer","EnhancerAtlas")
-  
-  
-  nofRepressed <- sapply(names(mne),function(x){
-    
-          #x=names(mne)[1]
-          Mnem_FOR_Enh <- readRDS(mne[x])
-          
-          # step 1. Identify repressed enhancers
-          # creating Granges object
-            EnhRegions <- GRanges(str_replace(str_replace(rownames(Mnem_FOR_Enh),"\\.",":"),"\\.","-"))
-              mcols(EnhRegions) <- DataFrame(Mnem_FOR_Enh)
-          
-          
-          # binarize mnemonics marks, count and report in how many cell types this region is repressed 
-          perEnhancerRepressedBinary <- binarizeFunction(EnhRegions,
-                                                         categories= c("12_EnhBiv","11_BivFlnk","10_TssBiv","8_ZNF/Rpts","7_Enh","6_EnhG","5_TxWk","4_Tx","2_TssAFlnk","3_TxFlnk","1_TssA" ))
-          
-          RepressedEnhRegions <- EnhRegions[which(perEnhancerRepressedBinary==127)]
-          
-          
-          
-          # step 2.identify EGA with repressed enhancers
-          OriginalData <- readRDS(OriginalData.path[x])
-          
-          tmp <- DataFrame(findOverlaps(RepressedEnhRegions,anchorOne(OriginalData)))
-          
-          # length repressed EGA
-          repressedEGA <- length(unique(tmp$subjectHits))
-          
-          return(repressedEGA)
-  
-  })
-  
-  
-  names(nofRepressed) <- names(OriginalData.path)
-  
-  return(nofRepressed)
+  return(EGA[unique(Data$queryHits)])
 }
 
-getRankingOrginal <- function(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Benchmarking/PCHiCBenchVal2BenchVal.rds",
-                              names=c("JEME","GeneHancer","EnhancerAtlas","FOCS" )){
+# function that reports number of overlaps between Gasperini true enhancers and false enhancers
+Enhancer_overlap <- function(EGAs,
+                             GaspEnhancers){
   
-  # get benchmarking statistics
-  HIC.benchmarking <- readRDS(path)
+  # separating positive and negative enhnacers
+  PositiveEn <- GaspEnhancers[GaspEnhancers$Activity=="Y"]
+  NegativeEn <- GaspEnhancers[GaspEnhancers$Activity!="Y"]
   
-  metadata <- as.data.frame(mcols(HIC.benchmarking))[,names]
+  #detecting overlap with positive enhancers
+  Pos_overlap <- data.frame(findOverlaps(EGAs,PositiveEn))
+  N_P <- length(unique(Pos_overlap$queryHits))
   
-  statistics <- colSums(metadata)
-  
-  
-  # get size of benchmark datasets
-  paths <- c("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/JEME/downloaded/fANTOM_encoderoadmap_lasso_EN_pooled_processed_GR_forceBYname_19_06_19.rds",
-             "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/GeneHancer/Fishilevich_2017_GeneHancer_hg19_GInteractions_190606.rds",
-             "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/EnhancerAtlas/Processed/GInteractions_EnhancerAtlas_ENSG_addedd_20918_forceByName180930.rds",
-             "/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Hait_2017_FOCS/processed/19_06_17_FOCS_pooled_processed_interactions.rds")
-  
-  
-  data <- lapply(paths,readRDS)
-  names(data) <- c("JEME","GeneHancer","EnhancerAtlas","FOCS")
-  size.vector <- (sapply(data, function(x){length((x))}))
-  names(size.vector) <- names(data)
-  size.v <- 1:length(paths)
-  names(size.v) <-  names(sort(size.vector))
+  # detetin overlap with negative ehancers  
+  Neg_overlap <- data.frame(findOverlaps(EGAs,NegativeEn))
+  N_N <- length(unique(Neg_overlap$queryHits))
   
   
-  df <- as.data.frame(cbind(Noverlaps=sort(statistics),
-                            FullSize=size.vector[names(sort(statistics))]#,
-                            #rank1=1:length(paths),
-                            #rank2=size.v[names(sort(statistics,decreasing = T))]
-  ))
-  
-  
-  df$Ratio <- round(df$Noverlaps*100/df$FullSize,2)
-  
-  
-  
-  return(df)
+  return(c(N_P,N_N))
   
 }
 
 
 
-
-
-###############################################
-#--------------Analysis----------------------
-###############################################
-
-# Get TPs
-
-Gasperini_TP <- getRankingOrginal(path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Benchmarking/GasperiniTPBenchVal2BenchVal.rds")
-
-
-# ranking is the same, regardless of the Benchmark used
-
-# Get FPs
-nofRepressed <- getRepressedRegions(path.mnem="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Mnemomics/Enhancers/")
-
-
-
-
-Gasperini_TP$FP <- nofRepressed[row.names(Gasperini_TP)]
-Gasperini_TP$Publication <- row.names(Gasperini_TP)
-Gasperini_TP$TP  <- Gasperini_TP$Noverlaps 
-
-#########################################################
-# ----------------------------------------------------
+# function that reports number of overlaps between Gasperini enhancer-gene assoiations and EGAs
+EGAs_overlap <- function(EGAs,
+                         TestEGAs=Gasperini_enh_gene,
+                         report="overlappingPairs"){
+  
+  
+  # prior runnning overlap extend +/-1000bp
+  tmp <- mcols(EGAs)
+  EGAs <- GInteractions(anchorOne(EGAs),
+                        promoters(anchorTwo(EGAs),1000,1000))
+  mcols(EGAs) <- tmp
+  
+  # running benchmarking!
+  tmp <- benchmarkInteractions(EGAs,Gasperini_enh_gene)
+  if (report=="overlappingPairs"){res <- unique(tmp[tmp$Bench!=0])}
+  if (report=="non_overlappingPairs"){res <- unique(tmp[tmp$Bench==0])}
+  
+  return(res)
+}
 
 
 
+# IMPORT
+# test enhancer dataset from Gasperini et al. 2019. Two sets of enhancers were analyzed: positive and negative interactions
+# Tested enhaner regions in Gasperini
+Datasets <- list.files("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/",full.names = T,pattern = "rds")
+GaspEnhancers = readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Data/Gasperini/Gasperini_S2A_tested_enhancers_GRanges.rds")
+# assessed positive interactions
+Gasperini_enh_gene <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/Gasperini2019_Cell_CRISPR_enhGene/Gasperini2019_Cell_CRISPR_enhGene.rds")
+# results of the inhouse models
+EA <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/EnhancerAtlas.rds")
+GH <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/GeneHancer.rds")
+JEME <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/JEME.rds")
+FOCS <- readRDS("/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Data/0_Pooled_input_Datasets/FOCS.rds")
 
-colorScheme <- c("black","darkorange","blue","darkcyan")
-names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+All_Tested_Models <- list(EA,FOCS,GH,JEME)
+# STEP1 Filtering out enhancers that could not be benchmarked at all
+
+All_Tested_Models.filEnh <- lapply(All_Tested_Models,
+                                   filterEnhancer,
+                                   GaspEnhancers)
+names(All_Tested_Models.filEnh) <- c("EA","FOCS","GH","JEME")
+
+sapply(All_Tested_Models.filEnh,length)
+
+# there are 67151  1806 14546 13257 interactions that can be benchmarked using Gasperini Interactions 
+# the next line is per method - how much it can be benchmarked in the first place
+#apply(as.data.frame(mcols(All_Tested_Models.filEnh)[-c(1:2)]),2,table)
 
 
+
+# names of the results of the modelling procedure
+Modeling_results <- colnames(mcols(All_Tested_Models.filEnh))[-c(1:2)]
+
+# get me a function of EGAsand ehancers
+
+###############
+# assessing overlap with Gaperinin TP
+
+TP_FP <- lapply(names(All_Tested_Models.filEnh),function(x){
+  
+  EGA <- All_Tested_Models.filEnh[[x]]
+
+      TP <- EGAs_overlap(EGA,
+                        Gasperini_enh_gene,"overlappingPairs")
+      
+      FP <- EGAs_overlap(EGA,
+                   Gasperini_enh_gene,
+                   "non_overlappingPairs")
+  return(c(length(TP),
+           length(FP)))
+  
+})
+
+Gasperini_TP <- do.call("rbind.data.frame",TP_FP)
+colnames(Gasperini_TP) <- c("TP","FP")
+
+#Gasperini_TP <- melt(Gasperini_TP)
+Gasperini_TP$Publication <-  c("EnhancerAtlas","FOCS","GeneHancer","JEME")
 
 
 # plot 1 normal plot 
 path="/data/akalin/Projects/AAkalin_Catalog_RI/post_PhD_analyses/Results/plots/fig3_TP_FP_normal_plot.png"
 
+colorScheme <- c("black","darkorange","blue","darkcyan")
+names(colorScheme) <- c("FOCS","GeneHancer","JEME","EnhancerAtlas")
+
 png(path,width = 900, height = 600)
-ggplot(data=Gasperini_TP, aes(x=FP, 
-                       y=TP,
-                       fill=Publication,
-                       size=FullSize)) +
-  geom_point(aes(colour=Publication)) +
+ggplot(data=Gasperini_TP, aes(x=TP,
+                              y=FP,
+                              color=Publication)) +
+  geom_point(size=16) +
   scale_color_manual(values=colorScheme[Gasperini_TP$Publication])+
   scale_size_continuous(range=c(20,30)) +
   theme(legend.key = element_rect(colour = NA, fill = NA),
-    plot.margin = unit(c(6,0,0,1), "cm"),
-    panel.grid.major = element_blank(), 
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(), 
-    axis.line = element_line(colour = "black"),
-    text = element_text(size=40,face="bold"),
-    axis.text.x = element_text(size=40,angle = 45, hjust = 1))+
-  ylim(0,320)+xlim(0,37000)+
-  ylab(" N[true positives]\n") +
-  xlab("\n N[false positives]") +
-  guides( size=FALSE,
-         colour=guide_legend(override.aes = list(size=25)))
-
-dev.off()
-
-
-
-
-
-
-
-
-# plot 2 zoom in plot
-#path="/data/akalin/Projects/AAkalin_Catalog_RI/final_Version/Results/Downstream/Plots/figure5_TP_FP/fig5B_TP_FP_zoomin_plot.png"
-
-png(path,width = 400, height = 400)
-ggplot(data=Gasperini_TP, aes(x=FP, 
-                              y=TP,
-                              fill=Publication,
-                              size=FullSize)) +
-  geom_point(aes(colour=Publication)) +
-  scale_color_manual(values=(colorScheme[Gasperini_TP$Publication]))+
-  scale_size_continuous(range=c(5,10)) +
-  theme(legend.position =  "none",
-    legend.key = element_rect(colour = NA, fill = NA),
-        plot.margin = unit(c(1,1,1,1), "cm"),
+        plot.margin = unit(c(2,0,0,1), "cm"),
         panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         panel.background = element_blank(), 
         axis.line = element_line(colour = "black"),
         text = element_text(size=40,face="bold"),
         axis.text.x = element_text(size=40,angle = 45, hjust = 1))+
-  ylim(0,320)+xlim(0,2000)+
-  ylab(" N[TP]\n") +
-  xlab("\n N[FP]") +
+  ylab(" N[FP]\n") +
+  xlab("\n N[TP]") +
   guides( size=FALSE,
           colour=guide_legend(override.aes = list(size=25)))
 
 dev.off()
+
+
+
+
